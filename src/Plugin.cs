@@ -17,7 +17,7 @@ namespace ShipPins
     {
         public const string ModGuid = "onononoki.ShipPins";
         public const string ModName = "ShipPins";
-        public const string ModVersion = "1.0.1";
+        public const string ModVersion = "1.0.2";
         private const string VPlusGuid = "org.bepinex.plugins.valheim_plus";
         private const string VPlusPins = "ValheimPlus.GameClasses.displayCartsAndBoatsOnMap";
         private const string VPlusConfig = "ValheimPlus.Configurations.Configuration";
