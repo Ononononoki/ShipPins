@@ -17,7 +17,7 @@ namespace ShipPins
     {
         public const string ModGuid = "onononoki.ShipPins";
         public const string ModName = "ShipPins";
-        public const string ModVersion = "1.0.2";
+        public const string ModVersion = "1.0.3";
         private const string VPlusGuid = "org.bepinex.plugins.valheim_plus";
         private const string VPlusPins = "ValheimPlus.GameClasses.displayCartsAndBoatsOnMap";
         private const string VPlusConfig = "ValheimPlus.Configurations.Configuration";
@@ -64,6 +64,8 @@ namespace ShipPins
                 return;
             }
 
+            // first pass right away, like V+ (its timer starts full)
+            _timer = _interval;
             new Harmony(ModGuid).Patch(_target, prefix: new HarmonyMethod(typeof(Plugin), nameof(ReplaceVPlusPins)));
             Logger.LogInfo($"{ModName} {ModVersion} loaded, V+ boat pins now cover every ship and cart");
         }
@@ -125,8 +127,9 @@ namespace ShipPins
                     }
                 }
 
-                // drop pins of ships and carts that no longer exist
-                foreach (var pair in _customPins.Where(p => !p.Key.IsValid()).ToList())
+                // drop pins of ships and carts that no longer exist. The game recycles ZDO objects, so a destroyed
+                // boat's ZDO can come back valid as something else; drop those too or the pin is stranded forever.
+                foreach (var pair in _customPins.Where(p => !p.Key.IsValid() || LabelFor(p.Key.GetPrefab()) == null).ToList())
                 {
                     __0.RemovePin(pair.Value);
                     _customPins.Remove(pair.Key);

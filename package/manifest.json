@@ -1,10 +1,10 @@
 {
   "name": "ShipPins",
-  "version_number": "1.0.2",
+  "version_number": "1.0.3",
   "website_url": "https://github.com/Ononononoki/ShipPins",
   "description": "ValheimPlus add-on that pins every ship and cart on the map, modded ones included. V+ only pins the vanilla cart, raft, karve and longship. Works with OdinShip boats and LoxWagon wagons.",
   "dependencies": [
-    "denikson-BepInExPack_Valheim-5.4.2351",
-    "Grantapher-ValheimPlus_Grantapher_Temporary-10.2.0"
+    "denikson-BepInExPack_Valheim-5.4.2350",
+    "Grantapher-ValheimPlus_Grantapher_Temporary-10.1.2"
   ]
 }
