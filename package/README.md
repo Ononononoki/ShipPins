@@ -12,8 +12,9 @@ V+'s `displayCartsAndBoats` option pins the vanilla Cart, Raft, Karve and Longsh
 
 ## Requirements and config
 
-- ValheimPlus (Grantapher fork) with `[Map] displayCartsAndBoats = true`, and BepInExPack Valheim.
-- Client side only. It is not needed on the server.
+- ValheimPlus (Grantapher fork) 10.1.2 or newer, and BepInExPack Valheim.
+- Client side only. It is not needed on the server, and V+'s `[Map] displayCartsAndBoats` setting does not have to be on, so it works even when the server's V+ config turns that off.
+- It shows ships and carts your game has seen this session. One that moves while you are far away keeps its last known spot until you come near it again.
 - The file `BepInEx/config/onononoki.ShipPins.cfg` has one setting, `Enabled` (default true). Off gives V+'s own four pins back.
 
 ## Compatibility
@@ -24,4 +25,4 @@ V+'s `displayCartsAndBoats` option pins the vanilla Cart, Raft, Karve and Longsh
 
 ## Feedback and bug reports
 
-Found a bug or have an idea? Open an issue on [GitHub](https://github.com/Ononononoki/ShipPins/issues). The source code is in the [GitHub repository](https://github.com/Ononononoki/ShipPins).
+This is aasmall's fork of [Onononoki/ShipPins](https://github.com/Ononononoki/ShipPins). Issues for this fork: [aasmall/ShipPins](https://github.com/aasmall/ShipPins/issues).

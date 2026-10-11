@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.0
+
+- Client-only: pins show without V+'s [Map] enabled / displayCartsAndBoats, which servers usually control through V+'s config sync. ShipPins' own Enabled setting is the only switch.
+
 ## 1.0.3
 
 - Requires ValheimPlus 10.1.2 and BepInExPack 5.4.2350 instead of 10.2.0 / 5.4.2351. The code ShipPins hooks is the same in 10.1.2, and mod managers no longer force a V+ upgrade that can break joining servers still on 10.1.2.

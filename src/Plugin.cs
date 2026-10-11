@@ -17,10 +17,9 @@ namespace ShipPins
     {
         public const string ModGuid = "onononoki.ShipPins";
         public const string ModName = "ShipPins";
-        public const string ModVersion = "1.0.3";
+        public const string ModVersion = "1.1.0";
         private const string VPlusGuid = "org.bepinex.plugins.valheim_plus";
         private const string VPlusPins = "ValheimPlus.GameClasses.displayCartsAndBoatsOnMap";
-        private const string VPlusConfig = "ValheimPlus.Configurations.Configuration";
 
         internal static ManualLogSource Log;
         private static ConfigEntry<bool> _enabled;
@@ -31,7 +30,6 @@ namespace ShipPins
         private static Dictionary<ZDO, Minimap.PinData> _customPins;
         private static Dictionary<int, Sprite> _icons;
         private static float _interval;
-        private static PropertyInfo _configCurrent, _configMap, _mapEnabled, _mapDisplay;
         private static MethodInfo _target;
 
         private static readonly AccessTools.FieldRef<ZDOMan, List<ZDO>[]> ObjectsBySector =
@@ -56,7 +54,9 @@ namespace ShipPins
         {
             Log = Logger;
             _enabled = Config.Bind("General", "Enabled", true,
-                "Pin every ship and cart on the map, modded ones included, in place of V+'s four vanilla pins. Needs V+ [Map] displayCartsAndBoats = true. Off gives V+'s own pins back.");
+                "Pin every ship and cart on the map, modded ones included, in place of V+'s four vanilla pins. " +
+                "Works on its own: V+'s [Map] displayCartsAndBoats setting (often set by the server) is not needed. " +
+                "Off gives V+'s own pins back.");
 
             if (!Resolve())
             {
@@ -74,17 +74,12 @@ namespace ShipPins
         {
             var pins = AccessTools.TypeByName(VPlusPins);
             var update = pins == null ? null : AccessTools.Inner(pins, "Minimap_UpdateMap_Patch");
-            var config = AccessTools.TypeByName(VPlusConfig);
-            if (update == null || config == null) return false;
+            if (update == null) return false;
 
             _target = AccessTools.Method(update, "Postfix");
             var checkPin = AccessTools.Method(update, "CheckPin");
             var findIcons = AccessTools.Method(update, "FindIcons");
-            _configCurrent = AccessTools.Property(config, "Current");
-            _configMap = _configCurrent == null ? null : AccessTools.Property(_configCurrent.PropertyType, "Map");
-            _mapEnabled = _configMap == null ? null : AccessTools.Property(_configMap.PropertyType, "IsEnabled");
-            _mapDisplay = _configMap == null ? null : AccessTools.Property(_configMap.PropertyType, "displayCartsAndBoats");
-            if (_target == null || checkPin == null || findIcons == null || _mapEnabled == null || _mapDisplay == null) return false;
+            if (_target == null || checkPin == null || findIcons == null) return false;
 
             try
             {
@@ -109,7 +104,9 @@ namespace ShipPins
             try
             {
                 _timer += __2;
-                if (_timer < _interval || !VPlusDisplayOn()) return false;
+                // V+ always attaches this hook and only checks its own Map settings inside it, so skipping that
+                // check makes the pins client-only: no server-side V+ setting needed.
+                if (_timer < _interval) return false;
                 _timer -= _interval;
 
                 if (_icons.Count == 0) _findIcons();
@@ -142,12 +139,6 @@ namespace ShipPins
                 Log.LogError($"pin update failed, V+ takes over its own pins again: {ex}");
                 return true;
             }
-        }
-
-        private static bool VPlusDisplayOn()
-        {
-            var map = _configMap.GetValue(_configCurrent.GetValue(null, null), null);
-            return map != null && (bool)_mapEnabled.GetValue(map, null) && (bool)_mapDisplay.GetValue(map, null);
         }
 
         // pin label for a ship or cart prefab, null for anything else, cached per prefab
