@@ -1,28 +1,37 @@
 # ShipPins
 
-**ValheimPlus pins only the four vanilla boats and carts on the map. ShipPins pins all of them.**
+**Pins every ship and cart on the map, modded ones included.**
 
-V+'s `displayCartsAndBoats` option pins the vanilla Cart, Raft, Karve and Longship. Ships and carts from mods such as OdinShip or LoxWagon get no pin. ShipPins runs the same routine for every ship and cart.
+Ships and carts from mods such as OdinShip or LoxWagon get a map pin like the vanilla ones. Works on its own, and with ValheimPlus too.
 
 ## What it does
 
-- Pins every object built on the game's own ship or cart, vanilla and modded, with no list to maintain. It also pins the Ashlands Drakkar, Catapult and Battering Ram, which V+ misses.
-- Uses V+'s own pin code, so the pins look and behave like V+'s. They are never saved to your map.
-- Modded ships and carts are labeled with their in-game name. The vanilla four keep V+'s labels.
+- Pins every object built on the game's own ship or cart, vanilla and modded, with no list to maintain: Raft, Karve, Longship, Drakkar, Cart, Catapult, Battering Ram, OdinShip boats, LoxWagon wagons.
+- Each pin shows the build icon and the in-game name, and follows its ship or cart every 2 seconds. The ship you steer has no pin, your own marker is there.
+- Pins are never saved to your map.
+
+## With ValheimPlus
+
+- V+'s `displayCartsAndBoats` option pins only the vanilla Cart, Raft, Karve and Longship. With V+ installed, ShipPins switches that off and pins everything itself, so each ship has exactly one pin. The vanilla four keep V+'s labels.
+- It works whatever the server's V+ map setting says.
+- If a V+ update changes its pin code, ShipPins leaves V+'s four vanilla pins to V+, pins the rest and logs a warning.
 
 ## Requirements and config
 
-- ValheimPlus (Grantapher fork) 10.1.2 or newer, and BepInExPack Valheim.
-- Client side only. It is not needed on the server, and V+'s `[Map] displayCartsAndBoats` setting does not have to be on, so it works even when the server's V+ config turns that off.
+- BepInExPack Valheim. ValheimPlus is optional.
+- Client-side only. It is not needed on the server.
 - It shows ships and carts your game has seen this session. One that moves while you are far away keeps its last known spot until you come near it again.
-- The file `BepInEx/config/onononoki.ShipPins.cfg` has one setting, `Enabled` (default true). Off gives V+'s own four pins back.
+- The file `BepInEx/config/onononoki.ShipPins.cfg` has three settings: `Enabled` (default true, off gives V+'s own pins back), `UpdateSeconds` (default 2, how often the pins follow the ships and carts) and `IconSize` (default 1.5, 1 is the game's normal pin size, 2 is V+'s).
 
 ## Compatibility
 
 - Works with mods that build ships and carts on the game's own ship and cart, which is the usual way. Checked against OdinShip and LoxWagon.
-- If a V+ update changes its pin code, ShipPins logs a warning and steps aside, and V+ keeps its own pins.
 - Safe to add or remove at any time. Nothing is saved.
+
+## Thanks
+
+- [aasmall](https://github.com/aasmall) for the client-side mode and two pin fixes, first made in [aasmall's fork](https://github.com/aasmall/ShipPins).
 
 ## Feedback and bug reports
 
-This is aasmall's fork of [Onononoki/ShipPins](https://github.com/Ononononoki/ShipPins). Issues for this fork: [aasmall/ShipPins](https://github.com/aasmall/ShipPins/issues).
+Found a bug or have an idea? Open an issue on [GitHub](https://github.com/Ononononoki/ShipPins/issues). The source code is in the [GitHub repository](https://github.com/Ononononoki/ShipPins).

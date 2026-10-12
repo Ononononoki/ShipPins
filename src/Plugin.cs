@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using BepInEx;
+using BepInEx.Bootstrap;
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
@@ -10,9 +11,11 @@ using UnityEngine;
 
 namespace ShipPins
 {
-    // runs v+'s own boat pin routine for every ship and cart prefab instead of its four vanilla ones
+    // pins every ship and cart on the map (every prefab with a Ship or Vagon component) with its build icon and name.
+    // works on its own. with valheim plus installed it switches v+'s own boat and cart pins off, so each ship has one
+    // pin, and if that part of v+ cannot be found it leaves v+'s four vanilla pins to v+. client only
     [BepInPlugin(ModGuid, ModName, ModVersion)]
-    [BepInDependency(VPlusGuid, BepInDependency.DependencyFlags.HardDependency)]
+    [BepInDependency(VPlusGuid, BepInDependency.DependencyFlags.SoftDependency)]
     public class Plugin : BaseUnityPlugin
     {
         public const string ModGuid = "onononoki.ShipPins";
@@ -20,144 +23,250 @@ namespace ShipPins
         public const string ModVersion = "1.1.0";
         private const string VPlusGuid = "org.bepinex.plugins.valheim_plus";
         private const string VPlusPins = "ValheimPlus.GameClasses.displayCartsAndBoatsOnMap";
+        private const string VPlusConfig = "ValheimPlus.Configurations.Configuration";
 
         internal static ManualLogSource Log;
         private static ConfigEntry<bool> _enabled;
-
-        // v+ internals, found by name so a v+ update can only switch this add-on off, never break v+
-        private static Func<Minimap, Player, ZDO, int, string, bool> _checkPin;
-        private static Action _findIcons;
-        private static Dictionary<ZDO, Minimap.PinData> _customPins;
-        private static Dictionary<int, Sprite> _icons;
-        private static float _interval;
-        private static MethodInfo _target;
+        private static ConfigEntry<float> _updateSeconds;
+        private static ConfigEntry<float> _iconSize;
 
         private static readonly AccessTools.FieldRef<ZDOMan, List<ZDO>[]> ObjectsBySector =
             AccessTools.FieldRefAccess<ZDOMan, List<ZDO>[]>("m_objectsBySector");
 
-        // v+ labels for the four prefabs it already pinned, kept so those pins look the same
-        private static readonly Dictionary<string, string> VPlusLabels = new Dictionary<string, string>
+        // the four prefabs v+ pins itself, with v+'s labels so the pins look the same with or without it
+        private static readonly Dictionary<string, string> VanillaLabels = new Dictionary<string, string>
         {
             { "Cart", "Cart" }, { "Raft", "Raft" }, { "Karve", "Karve" }, { "VikingShip", "Longship" }
         };
 
-        // prefab hash to pin label, null when the prefab is not a ship or cart
-        private static readonly Dictionary<int, string> Labels = new Dictionary<int, string>();
+        // what a ship or cart prefab is pinned with
+        private sealed class Kind
+        {
+            internal string Label;
+            internal Sprite Icon;
+            internal bool Vanilla; // one of the four v+ pins itself
+        }
 
-        // build icons of ships and carts that are not in the hammer table v+ reads its icons from
-        private static readonly Dictionary<int, Sprite> OwnIcons = new Dictionary<int, Sprite>();
-
-        private static float _timer;
+        // prefab hash to its kind, null when the prefab is not a ship or cart (cached once the scene is up)
+        private static readonly Dictionary<int, Kind> Kinds = new Dictionary<int, Kind>();
+        private static readonly Dictionary<ZDO, Minimap.PinData> Pins = new Dictionary<ZDO, Minimap.PinData>();
+        private static Minimap _map;
+        private static float _timer = float.MaxValue; // the first update runs at once, so pins show as the map loads
         private static bool _failed;
+
+        // valheim plus, found by name so a v+ update can only switch this part off, never break v+
+        private static bool _vplus;          // v+ is installed
+        private static bool _vplusSilenced;  // v+'s own boat and cart pin update is switched off by this mod
+        private static PropertyInfo _configCurrent, _configMap, _mapEnabled, _mapDisplay;
 
         private void Awake()
         {
             Log = Logger;
             _enabled = Config.Bind("General", "Enabled", true,
-                "Pin every ship and cart on the map, modded ones included, in place of V+'s four vanilla pins. " +
-                "Works on its own: V+'s [Map] displayCartsAndBoats setting (often set by the server) is not needed. " +
-                "Off gives V+'s own pins back.");
+                "Pin every ship and cart on the map, modded ones included. With ValheimPlus installed, its own four boat and cart pins are replaced, so each ship has one pin. Off: no pins from this mod (V+ shows its own again).");
+            _updateSeconds = Config.Bind("General", "UpdateSeconds", 2f,
+                new ConfigDescription("How often the pins move to where the ships and carts are, in seconds (V+ uses 5).", new AcceptableValueRange<float>(0.5f, 10f)));
+            _iconSize = Config.Bind("General", "IconSize", 1.5f,
+                new ConfigDescription("Size of the ship and cart pins. 1 is the game's normal pin size, 2 is V+'s.", new AcceptableValueRange<float>(1f, 2f)));
 
-            if (!Resolve())
-            {
-                Logger.LogWarning("could not find V+'s boat pin code (V+ update?), V+ keeps its own pins");
-                return;
-            }
+            _vplus = Chainloader.PluginInfos.ContainsKey(VPlusGuid);
+            var harmony = new Harmony(ModGuid);
+            harmony.Patch(AccessTools.Method(typeof(Minimap), "UpdateMap"), postfix: new HarmonyMethod(typeof(Plugin), nameof(UpdatePins)));
+            harmony.Patch(AccessTools.Method(typeof(Minimap), "UpdatePins"), postfix: new HarmonyMethod(typeof(Plugin), nameof(FitPins)));
+            if (_vplus) SilenceVPlus(harmony);
 
-            // first pass right away, like V+ (its timer starts full)
-            _timer = _interval;
-            new Harmony(ModGuid).Patch(_target, prefix: new HarmonyMethod(typeof(Plugin), nameof(ReplaceVPlusPins)));
-            Logger.LogInfo($"{ModName} {ModVersion} loaded, V+ boat pins now cover every ship and cart");
+            if (!_vplus) Logger.LogInfo($"{ModName} {ModVersion} loaded, pinning every ship and cart");
+            else if (_vplusSilenced) Logger.LogInfo($"{ModName} {ModVersion} loaded, pinning every ship and cart in place of V+'s boat and cart pins");
+            else Logger.LogWarning($"{ModName} {ModVersion} loaded, V+'s boat pin code not found (V+ update?): V+ keeps its four vanilla pins whenever its map setting shows them, ShipPins pins the rest");
         }
 
-        private static bool Resolve()
+        // v+'s boat and cart pin update (a postfix on the map update), and its map settings
+        internal static MethodInfo ResolveVPlus()
         {
+            var config = AccessTools.TypeByName(VPlusConfig);
+            _configCurrent = config == null ? null : AccessTools.Property(config, "Current");
+            _configMap = _configCurrent == null ? null : AccessTools.Property(_configCurrent.PropertyType, "Map");
+            _mapEnabled = _configMap == null ? null : AccessTools.Property(_configMap.PropertyType, "IsEnabled");
+            _mapDisplay = _configMap == null ? null : AccessTools.Property(_configMap.PropertyType, "displayCartsAndBoats");
+
             var pins = AccessTools.TypeByName(VPlusPins);
             var update = pins == null ? null : AccessTools.Inner(pins, "Minimap_UpdateMap_Patch");
-            if (update == null) return false;
+            return update == null ? null : AccessTools.Method(update, "Postfix");
+        }
 
-            _target = AccessTools.Method(update, "Postfix");
-            var checkPin = AccessTools.Method(update, "CheckPin");
-            var findIcons = AccessTools.Method(update, "FindIcons");
-            if (_target == null || checkPin == null || findIcons == null) return false;
-
+        // a prefix that skips v+'s pin update while this mod pins, so v+ never adds pins of its own
+        private static void SilenceVPlus(Harmony harmony)
+        {
             try
             {
-                _checkPin = (Func<Minimap, Player, ZDO, int, string, bool>)Delegate.CreateDelegate(typeof(Func<Minimap, Player, ZDO, int, string, bool>), checkPin);
-                _findIcons = (Action)Delegate.CreateDelegate(typeof(Action), findIcons);
-                _customPins = (Dictionary<ZDO, Minimap.PinData>)AccessTools.Field(pins, "customPins").GetValue(null);
-                _icons = (Dictionary<int, Sprite>)AccessTools.Field(pins, "icons").GetValue(null);
-                _interval = (float)AccessTools.Field(pins, "updateInterval").GetValue(null);
+                var postfix = ResolveVPlus();
+                if (postfix == null) return;
+                harmony.Patch(postfix, prefix: new HarmonyMethod(typeof(Plugin), nameof(SkipVPlusPins)));
+                _vplusSilenced = true;
             }
             catch (Exception ex)
             {
-                Log.LogWarning($"V+ boat pin code changed shape: {ex.Message}");
-                return false;
+                Log.LogWarning($"V+'s boat pin code changed shape: {ex.Message}");
             }
-            return _customPins != null && _icons != null;
         }
 
-        // same steps as v+'s pin update, for every ship and cart prefab, then skips v+'s own version
-        private static bool ReplaceVPlusPins(ref Minimap __0, Player __1, float __2)
+        // false skips v+'s pin update, so v+ pins again only when this mod is off or stopped
+        private static bool SkipVPlusPins() => _failed || !_enabled.Value;
+
+        // v+ draws its own pins of the four vanilla prefabs: it is installed, not switched off, and its map settings show
+        // them. unknown settings count as shown, so there are never two pins on one ship
+        internal static bool VPlusDrawsPins()
         {
-            if (_failed || !_enabled.Value) return true;
+            if (!_vplus || _vplusSilenced) return false;
             try
             {
-                _timer += __2;
-                // V+ always attaches this hook and only checks its own Map settings inside it, so skipping that
-                // check makes the pins client-only: no server-side V+ setting needed.
-                if (_timer < _interval) return false;
-                _timer -= _interval;
+                if (_configCurrent == null || _configMap == null || _mapEnabled == null || _mapDisplay == null) return true;
+                var map = _configMap.GetValue(_configCurrent.GetValue(null, null), null);
+                return map == null || (bool)_mapEnabled.GetValue(map, null) && (bool)_mapDisplay.GetValue(map, null);
+            }
+            catch
+            {
+                return true;
+            }
+        }
 
-                if (_icons.Count == 0) _findIcons();
+        // after the game's own map update: every few seconds each ship and cart gets its pin where it is
+        private static void UpdatePins(Minimap __instance, Player player, float dt)
+        {
+            if (_failed) return;
+            try
+            {
+                if (__instance != _map)
+                {
+                    // a new map (another world, a relog): the old pins went with the old one
+                    Pins.Clear();
+                    _map = __instance;
+                    _timer = float.MaxValue;
+                }
+                if (!_enabled.Value)
+                {
+                    Clear(__instance);
+                    return;
+                }
+                _timer += dt;
+                if (_timer < _updateSeconds.Value) return;
+                _timer = 0f;
+                if (!player || ZDOMan.instance == null || !ZNetScene.instance) return;
 
+                bool skipVanilla = VPlusDrawsPins();
+                var steered = player.GetControlledShip();
                 foreach (var sector in ObjectsBySector(ZDOMan.instance))
                 {
                     if (sector == null) continue;
                     foreach (var zdo in sector)
                     {
-                        var hash = zdo.GetPrefab();
-                        var label = LabelFor(hash);
-                        if (label == null) continue;
-                        if (!_icons.ContainsKey(hash) && OwnIcons.TryGetValue(hash, out var icon)) _icons[hash] = icon;
-                        _checkPin(__0, __1, zdo, hash, label);
+                        var kind = KindOf(zdo.GetPrefab());
+                        if (kind == null || kind.Vanilla && skipVanilla) continue;
+                        Pin(__instance, steered, zdo, kind);
                     }
                 }
 
-                // drop pins of ships and carts that no longer exist. The game recycles ZDO objects, so a destroyed
-                // boat's ZDO can come back valid as something else; drop those too or the pin is stranded forever.
-                foreach (var pair in _customPins.Where(p => !p.Key.IsValid() || LabelFor(p.Key.GetPrefab()) == null).ToList())
+                foreach (var pair in Pins.Where(p => Stale(p.Key, skipVanilla)).ToList())
                 {
-                    __0.RemovePin(pair.Value);
-                    _customPins.Remove(pair.Key);
+                    __instance.RemovePin(pair.Value);
+                    Pins.Remove(pair.Key);
                 }
-                return false;
             }
             catch (Exception ex)
             {
                 _failed = true;
-                Log.LogError($"pin update failed, V+ takes over its own pins again: {ex}");
-                return true;
+                Log.LogError($"pin update failed, ShipPins stops (V+ shows its own pins again if installed): {ex}");
+                try
+                {
+                    Clear(__instance);
+                }
+                catch (Exception)
+                {
+                    Pins.Clear();
+                }
             }
         }
 
-        // pin label for a ship or cart prefab, null for anything else, cached per prefab
-        private static string LabelFor(int hash)
+        // a pin whose ship or cart is gone. the game reuses ZDO objects, so a destroyed boat's ZDO can come back valid as
+        // something else: those pins go too, or they stay stranded on the map (aasmall's fix)
+        private static bool Stale(ZDO zdo, bool skipVanilla)
         {
-            if (Labels.TryGetValue(hash, out var label)) return label;
+            if (!zdo.IsValid()) return true;
+            var kind = KindOf(zdo.GetPrefab());
+            return kind == null || kind.Vanilla && skipVanilla;
+        }
+
+        // like v+'s pins: the build icon at the ship or cart, moved there each update. the ship the player steers has
+        // no pin (the player's own marker is there)
+        private static void Pin(Minimap map, Ship steered, ZDO zdo, Kind kind)
+        {
+            var pos = zdo.GetPosition();
+            bool has = Pins.TryGetValue(zdo, out var pin);
+            if (steered && Vector3.Distance(steered.transform.position, pos) < 0.01f)
+            {
+                if (has)
+                {
+                    map.RemovePin(pin);
+                    Pins.Remove(zdo);
+                }
+                return;
+            }
+            if (has)
+            {
+                pin.m_pos = pos;
+                return;
+            }
+            // the pin type v+ uses, never saved, with the build icon in place of its own
+            pin = map.AddPin(pos, Minimap.PinType.Death, kind.Label, false, false, 0L, default);
+            if (kind.Icon) pin.m_icon = kind.Icon;
+            pin.m_doubleSize = true;
+            Pins.Add(zdo, pin);
+        }
+
+        // each frame after the game places the pins: this mod's icons get their own size (the game only knows normal and
+        // double), and their names move below them (the game puts a name where a normal size pin ends, so on a bigger
+        // icon it covered the icon's lower part)
+        private static void FitPins(Minimap __instance)
+        {
+            if (Pins.Count == 0) return;
+            float normal = __instance.m_mode == Minimap.MapMode.Large ? __instance.m_pinSizeLarge : __instance.m_pinSizeSmall;
+            float size = normal * _iconSize.Value;
+            float drop = (size - normal) * 0.5f + normal * NameGap;
+            foreach (var pin in Pins.Values)
+            {
+                if (!pin.m_uiElement) continue;
+                pin.m_uiElement.sizeDelta = new Vector2(size, size);
+                var name = pin.m_NamePinData?.PinNameRectTransform;
+                if (name) name.anchoredPosition = pin.m_uiElement.anchoredPosition + new Vector2(0f, -drop);
+            }
+        }
+
+        private const float NameGap = 0.1f; // of a normal pin's size, between the icon and its name
+
+        // takes every pin of this mod off the map
+        private static void Clear(Minimap map)
+        {
+            foreach (var pin in Pins.Values) map.RemovePin(pin);
+            Pins.Clear();
+            _timer = float.MaxValue;
+        }
+
+        // the kind of a prefab, null for anything that is not a ship or cart (asked again until the scene is up)
+        private static Kind KindOf(int hash)
+        {
+            if (Kinds.TryGetValue(hash, out var kind)) return kind;
             if (!ZNetScene.instance) return null;
 
             var prefab = ZNetScene.instance.GetPrefab(hash);
             if (prefab && (prefab.GetComponent<Ship>() || prefab.GetComponent<Vagon>()))
             {
                 var piece = prefab.GetComponent<Piece>();
-                if (VPlusLabels.TryGetValue(prefab.name, out var vplus)) label = vplus;
-                else if (piece && !string.IsNullOrEmpty(piece.m_name)) label = Localization.instance.Localize(piece.m_name);
-                else label = prefab.name;
-                if (piece && piece.m_icon) OwnIcons[hash] = piece.m_icon;
+                bool vanilla = VanillaLabels.TryGetValue(prefab.name, out var label);
+                if (!vanilla) label = piece && !string.IsNullOrEmpty(piece.m_name) ? Localization.instance.Localize(piece.m_name) : prefab.name;
+                kind = new Kind { Label = label, Icon = piece ? piece.m_icon : null, Vanilla = vanilla };
             }
-            Labels[hash] = label;
-            return label;
+            Kinds[hash] = kind;
+            return kind;
         }
     }
 }

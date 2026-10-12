@@ -1,18 +1,22 @@
 # ShipPins
 
-ValheimPlus add-on that pins every ship and cart on the map, modded ones included, such as OdinShip boats and LoxWagon wagons. V+ only pins the vanilla cart, raft, karve and longship.
+Pins every ship and cart on the map, modded ones included, such as OdinShip boats and LoxWagon wagons. Works on its own, and with ValheimPlus too.
 
-Fork of [Onononoki/ShipPins](https://github.com/Ononononoki/ShipPins) (MIT). This fork is client-only: it does not need V+'s `[Map] displayCartsAndBoats` setting, which servers usually control. See [package/CHANGELOG.md](package/CHANGELOG.md).
+A Valheim mod by Onononoki. Get it on Thunderstore: https://thunderstore.io/c/valheim/p/Onononoki/ShipPins/
 
 The full description, settings and changelog are in [package/README.md](package/README.md) and [package/CHANGELOG.md](package/CHANGELOG.md).
 
+## Contributors
+
+- [aasmall](https://github.com/aasmall): the client-side mode and two pin fixes in 1.1.0, first made in [aasmall's fork](https://github.com/aasmall/ShipPins).
+
 ## Bug reports and feedback
 
-Bug reports and ideas for this fork: https://github.com/aasmall/ShipPins/issues. If something breaks, please add your mod list and the BepInEx log (`BepInEx/LogOutput.log`).
+Bug reports and ideas: open an issue at https://github.com/Ononononoki/ShipPins/issues. If something breaks, please add your mod list and the BepInEx log (`BepInEx/LogOutput.log`).
 
 ## Building
 
-Needs the .NET SDK, Valheim and a mod manager profile with BepInEx (the mod itself runs with ValheimPlus).
+Needs the .NET SDK, Valheim and a mod manager profile with BepInEx.
 
 ```
 dotnet build -c Release -p:GamePath="<Valheim folder>" -p:ProfilePath="<mod manager profile folder>"

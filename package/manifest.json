@@ -1,10 +1,9 @@
 {
   "name": "ShipPins",
   "version_number": "1.1.0",
-  "website_url": "https://github.com/aasmall/ShipPins",
-  "description": "Pins every ship and cart on the map, modded ones included, using V+'s pin code. Client-only: no server setting needed.",
+  "website_url": "https://github.com/Ononononoki/ShipPins",
+  "description": "Pins every ship and cart on the map, modded ones included, such as OdinShip boats and LoxWagon wagons. Client-side, works on its own. With ValheimPlus installed it replaces V+'s four boat and cart pins.",
   "dependencies": [
-    "denikson-BepInExPack_Valheim-5.4.2350",
-    "Grantapher-ValheimPlus_Grantapher_Temporary-10.1.2"
+    "denikson-BepInExPack_Valheim-5.4.2351"
   ]
 }

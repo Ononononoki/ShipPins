@@ -2,13 +2,13 @@
 
 ## 1.1.0
 
-- Client-only: pins show without V+'s [Map] enabled / displayCartsAndBoats, which servers usually control through V+'s config sync. ShipPins' own Enabled setting is the only switch.
-
-## 1.0.3
-
-- Requires ValheimPlus 10.1.2 and BepInExPack 5.4.2350 instead of 10.2.0 / 5.4.2351. The code ShipPins hooks is the same in 10.1.2, and mod managers no longer force a V+ upgrade that can break joining servers still on 10.1.2.
-- Pins of destroyed ships no longer get stranded on the map when the game reuses their object record.
-- Pins show up as soon as the map loads instead of after the first 5 seconds.
+- Works on its own now, ValheimPlus is no longer needed. With V+ installed, ShipPins replaces V+'s own boat and cart pins, so each ship has one pin.
+- Client-side only: the pins show whatever the server's V+ map setting says.
+- Pins of destroyed ships no longer stay stranded on the map when the game reuses their object record.
+- Pins show up as soon as the map loads.
+- New setting `UpdateSeconds` (default 2): how often the pins follow the ships and carts.
+- Pins are 1.5 times the normal pin size, with the name below the icon instead of over it. New setting `IconSize` (1 to 2, V+'s pins are 2).
+- Thanks to [aasmall](https://github.com/aasmall) for the client-side mode and both pin fixes, first made in [aasmall's fork](https://github.com/aasmall/ShipPins).
 
 ## 1.0.2
 
