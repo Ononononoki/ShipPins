@@ -20,7 +20,7 @@ namespace ShipPins
     {
         public const string ModGuid = "onononoki.ShipPins";
         public const string ModName = "ShipPins";
-        public const string ModVersion = "1.1.0";
+        public const string ModVersion = "1.1.1";
         private const string VPlusGuid = "org.bepinex.plugins.valheim_plus";
         private const string VPlusPins = "ValheimPlus.GameClasses.displayCartsAndBoatsOnMap";
         private const string VPlusConfig = "ValheimPlus.Configurations.Configuration";
@@ -53,6 +53,11 @@ namespace ShipPins
         private static Minimap _map;
         private static float _timer = float.MaxValue; // the first update runs at once, so pins show as the map loads
         private static bool _failed;
+
+        // a pass over the world's objects is spread over frames: each frame looks at this many sector slots and objects
+        // at most, so a big world never stalls the game every few seconds. -1 is no pass running
+        private const int ScanPerFrame = 20000;
+        private static int _scanAt = -1;
 
         // valheim plus, found by name so a v+ update can only switch this part off, never break v+
         private static bool _vplus;          // v+ is installed
@@ -142,22 +147,34 @@ namespace ShipPins
                     Pins.Clear();
                     _map = __instance;
                     _timer = float.MaxValue;
+                    _scanAt = -1;
                 }
                 if (!_enabled.Value)
                 {
                     Clear(__instance);
+                    _scanAt = -1;
                     return;
                 }
                 _timer += dt;
-                if (_timer < _updateSeconds.Value) return;
-                _timer = 0f;
+                if (_scanAt < 0)
+                {
+                    if (_timer < _updateSeconds.Value) return;
+                    _timer = 0f;
+                    _scanAt = 0;
+                }
                 if (!player || ZDOMan.instance == null || !ZNetScene.instance) return;
 
+                // this frame's part of the pass: each ship and cart's pin moves when its sector comes up
                 bool skipVanilla = VPlusDrawsPins();
                 var steered = player.GetControlledShip();
-                foreach (var sector in ObjectsBySector(ZDOMan.instance))
+                var sectors = ObjectsBySector(ZDOMan.instance);
+                int budget = ScanPerFrame;
+                while (_scanAt < sectors.Length && budget > 0)
                 {
+                    var sector = sectors[_scanAt++];
+                    budget--;
                     if (sector == null) continue;
+                    budget -= sector.Count;
                     foreach (var zdo in sector)
                     {
                         var kind = KindOf(zdo.GetPrefab());
@@ -165,7 +182,10 @@ namespace ShipPins
                         Pin(__instance, steered, zdo, kind);
                     }
                 }
+                if (_scanAt < sectors.Length) return;
+                _scanAt = -1;
 
+                // the pass is done: pins of ships and carts that are gone leave the map
                 foreach (var pair in Pins.Where(p => Stale(p.Key, skipVanilla)).ToList())
                 {
                     __instance.RemovePin(pair.Value);

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.1
+
+- Lighter on big worlds. The search for ships and carts is spread over several frames, so it no longer causes a short stutter every few seconds.
+
 ## 1.1.0
 
 - Works on its own now, ValheimPlus is no longer needed. With V+ installed, ShipPins replaces V+'s own boat and cart pins, so each ship has one pin.
