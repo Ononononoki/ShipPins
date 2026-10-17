@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.2
+
+- Much lighter. The pins now follow only the ships and carts already found, and the search for new ones runs slowly in the background. A ship or cart that loads near you is pinned at once, one built far away by someone else within about 30 seconds.
+- The pins of destroyed ships are now always cleared from ShipPins' own list when the game reuses their record.
+
 ## 1.1.1
 
 - Lighter on big worlds. The search for ships and carts is spread over several frames, so it no longer causes a short stutter every few seconds.

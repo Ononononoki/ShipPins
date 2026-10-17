@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using BepInEx;
 using BepInEx.Bootstrap;
 using BepInEx.Configuration;
@@ -20,7 +20,7 @@ namespace ShipPins
     {
         public const string ModGuid = "onononoki.ShipPins";
         public const string ModName = "ShipPins";
-        public const string ModVersion = "1.1.1";
+        public const string ModVersion = "1.1.2";
         private const string VPlusGuid = "org.bepinex.plugins.valheim_plus";
         private const string VPlusPins = "ValheimPlus.GameClasses.displayCartsAndBoatsOnMap";
         private const string VPlusConfig = "ValheimPlus.Configurations.Configuration";
@@ -49,15 +49,26 @@ namespace ShipPins
 
         // prefab hash to its kind, null when the prefab is not a ship or cart (cached once the scene is up)
         private static readonly Dictionary<int, Kind> Kinds = new Dictionary<int, Kind>();
-        private static readonly Dictionary<ZDO, Minimap.PinData> Pins = new Dictionary<ZDO, Minimap.PinData>();
+        // keyed by the ZDO object itself: a ZDO's own hash follows its id, which the game resets when it reuses the object
+        private static readonly Dictionary<ZDO, Minimap.PinData> Pins = new Dictionary<ZDO, Minimap.PinData>(new SameZdo());
+        // every ship and cart found so far, with the kind it was found as (a reused ZDO can come back as something else)
+        private static readonly Dictionary<ZDO, Kind> Known = new Dictionary<ZDO, Kind>(new SameZdo());
+        private static readonly List<ZDO> Gone = new List<ZDO>();
+        private static ZDOMan _knownFor; // the world the known ships belong to
         private static Minimap _map;
         private static float _timer = float.MaxValue; // the first update runs at once, so pins show as the map loads
         private static bool _failed;
 
-        // a pass over the world's objects is spread over frames: each frame looks at this many sector slots and objects
-        // at most, so a big world never stalls the game every few seconds. -1 is no pass running
-        private const int ScanPerFrame = 20000;
+        // new ships and carts are found by a pass over the world's objects, spread over frames: the first pass after the
+        // map loads looks at FirstScanPerFrame sector slots and objects a frame, so the pins show at once, later passes
+        // at ScanPerFrame and at most every SearchSeconds. ships and carts that load near the player are added at once.
+        // -1 is no pass running
+        private const int FirstScanPerFrame = 20000;
+        private const int ScanPerFrame = 2000;
+        private const float SearchSeconds = 30f;
         private static int _scanAt = -1;
+        private static float _searchTimer = float.MaxValue;
+        private static bool _firstPass = true;
 
         // valheim plus, found by name so a v+ update can only switch this part off, never break v+
         private static bool _vplus;          // v+ is installed
@@ -78,6 +89,16 @@ namespace ShipPins
             var harmony = new Harmony(ModGuid);
             harmony.Patch(AccessTools.Method(typeof(Minimap), "UpdateMap"), postfix: new HarmonyMethod(typeof(Plugin), nameof(UpdatePins)));
             harmony.Patch(AccessTools.Method(typeof(Minimap), "UpdatePins"), postfix: new HarmonyMethod(typeof(Plugin), nameof(FitPins)));
+            try
+            {
+                var loaded = new HarmonyMethod(typeof(Plugin), nameof(Loaded));
+                harmony.Patch(AccessTools.Method(typeof(Ship), "Awake"), postfix: loaded);
+                harmony.Patch(AccessTools.Method(typeof(Vagon), "Awake"), postfix: loaded);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning($"ships and carts that load are found by the search only (the game's Awake changed?): {ex.Message}");
+            }
             if (_vplus) SilenceVPlus(harmony);
 
             if (!_vplus) Logger.LogInfo($"{ModName} {ModVersion} loaded, pinning every ship and cart");
@@ -135,7 +156,8 @@ namespace ShipPins
             }
         }
 
-        // after the game's own map update: every few seconds each ship and cart gets its pin where it is
+        // after the game's own map update: the search for new ships and carts goes on a little each frame, and every few
+        // seconds each known one gets its pin where it is
         private static void UpdatePins(Minimap __instance, Player player, float dt)
         {
             if (_failed) return;
@@ -143,11 +165,13 @@ namespace ShipPins
             {
                 if (__instance != _map)
                 {
-                    // a new map (another world, a relog): the old pins went with the old one
+                    // a new map (another world, a relog): the old pins went with the old one, the search starts at once
                     Pins.Clear();
                     _map = __instance;
                     _timer = float.MaxValue;
+                    _searchTimer = float.MaxValue;
                     _scanAt = -1;
+                    _firstPass = true;
                 }
                 if (!_enabled.Value)
                 {
@@ -155,42 +179,21 @@ namespace ShipPins
                     _scanAt = -1;
                     return;
                 }
-                _timer += dt;
-                if (_scanAt < 0)
+                if (!player || ZDOMan.instance == null || !ZNetScene.instance) return;
+                ForgetOtherWorld();
+
+                _searchTimer += dt;
+                if (_scanAt < 0 && _searchTimer >= SearchSeconds)
                 {
-                    if (_timer < _updateSeconds.Value) return;
-                    _timer = 0f;
+                    _searchTimer = 0f;
                     _scanAt = 0;
                 }
-                if (!player || ZDOMan.instance == null || !ZNetScene.instance) return;
+                if (_scanAt >= 0) Search(__instance, player);
 
-                // this frame's part of the pass: each ship and cart's pin moves when its sector comes up
-                bool skipVanilla = VPlusDrawsPins();
-                var steered = player.GetControlledShip();
-                var sectors = ObjectsBySector(ZDOMan.instance);
-                int budget = ScanPerFrame;
-                while (_scanAt < sectors.Length && budget > 0)
-                {
-                    var sector = sectors[_scanAt++];
-                    budget--;
-                    if (sector == null) continue;
-                    budget -= sector.Count;
-                    foreach (var zdo in sector)
-                    {
-                        var kind = KindOf(zdo.GetPrefab());
-                        if (kind == null || kind.Vanilla && skipVanilla) continue;
-                        Pin(__instance, steered, zdo, kind);
-                    }
-                }
-                if (_scanAt < sectors.Length) return;
-                _scanAt = -1;
-
-                // the pass is done: pins of ships and carts that are gone leave the map
-                foreach (var pair in Pins.Where(p => Stale(p.Key, skipVanilla)).ToList())
-                {
-                    __instance.RemovePin(pair.Value);
-                    Pins.Remove(pair.Key);
-                }
+                _timer += dt;
+                if (_timer < _updateSeconds.Value) return;
+                _timer = 0f;
+                Move(__instance, player);
             }
             catch (Exception ex)
             {
@@ -207,13 +210,90 @@ namespace ShipPins
             }
         }
 
-        // a pin whose ship or cart is gone. the game reuses ZDO objects, so a destroyed boat's ZDO can come back valid as
-        // something else: those pins go too, or they stay stranded on the map (aasmall's fix)
-        private static bool Stale(ZDO zdo, bool skipVanilla)
+        // this frame's part of the search pass: ships and carts not known yet are added and pinned at once
+        private static void Search(Minimap map, Player player)
         {
-            if (!zdo.IsValid()) return true;
-            var kind = KindOf(zdo.GetPrefab());
-            return kind == null || kind.Vanilla && skipVanilla;
+            var sectors = ObjectsBySector(ZDOMan.instance);
+            int budget = _firstPass ? FirstScanPerFrame : ScanPerFrame;
+            while (_scanAt < sectors.Length && budget > 0)
+            {
+                var sector = sectors[_scanAt++];
+                budget--;
+                if (sector == null) continue;
+                budget -= sector.Count;
+                foreach (var zdo in sector)
+                {
+                    var kind = KindOf(zdo.GetPrefab());
+                    if (kind == null || Known.ContainsKey(zdo)) continue;
+                    Known[zdo] = kind;
+                    if (!kind.Vanilla || !VPlusDrawsPins()) Pin(map, player.GetControlledShip(), zdo, kind);
+                }
+            }
+            if (_scanAt < sectors.Length) return;
+            _scanAt = -1;
+            _firstPass = false;
+        }
+
+        // every known ship and cart's pin moves to where it is. one that is gone leaves the map: the game reuses ZDO
+        // objects, so a destroyed boat's ZDO can come back valid as something else, and those pins go too, or they stay
+        // stranded on the map (aasmall's fix). a ZDO that came back as another ship is found again as that one
+        private static void Move(Minimap map, Player player)
+        {
+            bool skipVanilla = VPlusDrawsPins();
+            var steered = player.GetControlledShip();
+            Gone.Clear();
+            foreach (var pair in Known)
+            {
+                var zdo = pair.Key;
+                if (!zdo.IsValid() || KindOf(zdo.GetPrefab()) != pair.Value)
+                {
+                    Gone.Add(zdo);
+                    continue;
+                }
+                if (pair.Value.Vanilla && skipVanilla) Unpin(map, zdo);
+                else Pin(map, steered, zdo, pair.Value);
+            }
+            foreach (var zdo in Gone)
+            {
+                Known.Remove(zdo);
+                Unpin(map, zdo);
+            }
+        }
+
+        private static void Unpin(Minimap map, ZDO zdo)
+        {
+            if (!Pins.TryGetValue(zdo, out var pin)) return;
+            map.RemovePin(pin);
+            Pins.Remove(zdo);
+        }
+
+        // a ship or cart that loads near the player is known at once, its pin comes with the next update
+        private static void Loaded(Component __instance)
+        {
+            if (_failed) return;
+            try
+            {
+                var view = __instance.GetComponent<ZNetView>();
+                var zdo = view ? view.GetZDO() : null;
+                if (zdo == null || ZDOMan.instance == null) return;
+                ForgetOtherWorld();
+                var kind = KindOf(zdo.GetPrefab());
+                if (kind == null || Known.ContainsKey(zdo)) return;
+                Known[zdo] = kind;
+                _timer = float.MaxValue;
+            }
+            catch (Exception ex)
+            {
+                Log.LogWarning($"a loaded ship or cart was not added, the search finds it: {ex.Message}");
+            }
+        }
+
+        // another world (a relog): the ships known before belong to the old one
+        private static void ForgetOtherWorld()
+        {
+            if (ReferenceEquals(ZDOMan.instance, _knownFor)) return;
+            _knownFor = ZDOMan.instance;
+            Known.Clear();
         }
 
         // like v+'s pins: the build icon at the ship or cart, moved there each update. the ship the player steers has
@@ -287,6 +367,12 @@ namespace ShipPins
             }
             Kinds[hash] = kind;
             return kind;
+        }
+
+        private sealed class SameZdo : IEqualityComparer<ZDO>
+        {
+            public bool Equals(ZDO a, ZDO b) => ReferenceEquals(a, b);
+            public int GetHashCode(ZDO zdo) => RuntimeHelpers.GetHashCode(zdo);
         }
     }
 }
