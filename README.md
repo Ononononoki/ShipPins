@@ -1,6 +1,6 @@
 # ShipPins
 
-Pins every ship and cart on the map, modded ones included, such as OdinShip boats and LoxWagon wagons. Works on its own, and with ValheimPlus too.
+Pins every ship and cart on the map, modded ones included, such as OdinShip boats and LoxWagon wagons. A collapsible ShipPins Options menu provides category switches, and overlapping labels can be hidden. Works on its own, and with ValheimPlus too.
 
 A Valheim mod by Onononoki. Get it on Thunderstore: https://thunderstore.io/c/valheim/p/Onononoki/ShipPins/
 

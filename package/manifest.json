@@ -1,8 +1,8 @@
 {
   "name": "ShipPins",
-  "version_number": "1.1.2",
+  "version_number": "1.2.0",
   "website_url": "https://github.com/Ononononoki/ShipPins",
-  "description": "Pins every ship and cart on the map, modded ones included, such as OdinShip boats and LoxWagon wagons. Client-side, works on its own. With ValheimPlus installed it replaces V+'s four boat and cart pins.",
+  "description": "Pins vanilla and modded ships and carts with their build icons. Includes a collapsible map menu with category filters and overlapping label handling. Client-side, standalone, with optional ValheimPlus support.",
   "dependencies": [
     "denikson-BepInExPack_Valheim-5.4.2351"
   ]

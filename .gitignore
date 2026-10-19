@@ -11,3 +11,5 @@
 !package/README.md
 !package/CHANGELOG.md
 !package/icon.png
+# release checks stay local
+/release_1.2.0/

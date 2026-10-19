@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0
+
+- Added a collapsible ShipPins Options menu on the large map using the game's map UI style.
+- Added separate switches for vanilla ships, modded ships, vanilla carts, modded carts, and siege carts. Category choices are saved when the menu is closed.
+- The menu starts collapsed whenever the map opens. ShowMapToggles can hide it while category settings remain active.
+- Overlapping ship and cart labels are hidden while their icons remain visible. Zoom in to separate them, or disable HideOverlappingLabels to show every label.
+
 ## 1.1.2
 
 - Much lighter. The pins now follow only the ships and carts already found, and the search for new ones runs slowly in the background. A ship or cart that loads near you is pinned at once, one built far away by someone else within about 30 seconds.
